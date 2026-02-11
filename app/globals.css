@@ -1,26 +1,177 @@
 @import "tailwindcss";
+@plugin "daisyui";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+/* DaisyUI Theme Configuration */
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    color-scheme: dark;
   }
 }
 
+/* Custom dark theme for DaisyUI */
+[data-theme="dark"],
+:root {
+  --b1: 10 10 15;
+  --b2: 18 18 26;
+  --b3: 26 26 37;
+  --bc: 245 245 247;
+  --p: 99 102 241;
+  --pc: 255 255 255;
+  --s: 139 92 246;
+  --sc: 255 255 255;
+  --a: 168 85 247;
+  --ac: 255 255 255;
+  --n: 39 39 42;
+  --nc: 161 161 170;
+  --in: 59 130 246;
+  --inc: 255 255 255;
+  --su: 34 197 94;
+  --suc: 255 255 255;
+  --wa: 245 158 11;
+  --wac: 0 0 0;
+  --er: 239 68 68;
+  --erc: 255 255 255;
+  --rounded-box: 1rem;
+  --rounded-btn: 0.75rem;
+  --rounded-badge: 1.5rem;
+  --animation-btn: 0.25s;
+  --animation-input: 0.2s;
+  --btn-focus-scale: 0.98;
+  --border-btn: 1px;
+  --tab-border: 1px;
+  --tab-radius: 0.5rem;
+}
+
+/* Glass Effect Variables */
+:root {
+  --glass-bg: rgba(22, 22, 31, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.3);
+  --color-accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  background: oklch(10% 0.01 260);
+  color: oklch(97% 0 0);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Gradient Background */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    radial-gradient(ellipse at 20% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Typography Enhancements */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+/* Custom Button Gradient */
+.btn-gradient {
+  background: var(--color-accent-gradient);
+  border: none;
+  color: white;
+  transition: all 0.2s ease;
+}
+
+.btn-gradient:hover {
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-1px);
+}
+
+/* Glass Card Effect */
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+}
+
+/* Navigation Active State */
+.nav-active {
+  background: rgba(99, 102, 241, 0.1);
+  color: oklch(70% 0.2 260);
+}
+
+/* Progress Bar with Gradient */
+.progress-gradient::-webkit-progress-value {
+  background: var(--color-accent-gradient);
+}
+
+.progress-gradient::-moz-progress-bar {
+  background: var(--color-accent-gradient);
+}
+
+/* Skill Level Dots */
+.skill-dot-empty {
+  @apply w-2 h-2 rounded-full bg-base-300 border border-neutral;
+}
+
+.skill-dot-filled {
+  @apply w-2 h-2 rounded-full bg-primary border-primary;
+}
+
+/* Animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s ease-out;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: oklch(12% 0.01 260);
+}
+
+::-webkit-scrollbar-thumb {
+  background: oklch(30% 0.01 260);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(40% 0.01 260);
+}
+
+/* Container */
+.container-app {
+  @apply max-w-7xl mx-auto px-6;
 }

@@ -1,65 +1,219 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { TEAM_MEMBERS, AssessmentRecord, ROLE_LABELS, STORAGE_KEYS } from '@/lib/team-data';
+
+export default function ManagerDashboard() {
+  const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
+  const [teamStats, setTeamStats] = useState({
+    leads: 0,
+    mid: 0,
+    junior: 0,
+    total: 0,
+    assessed: 0,
+    readyForPromotion: 0,
+    needsCoaching: 0,
+  });
+
+  useEffect(() => {
+    // Load assessments
+    const saved = localStorage.getItem(STORAGE_KEYS.assessments);
+    const allAssessments: AssessmentRecord[] = saved ? JSON.parse(saved) : [];
+    setAssessments(allAssessments.sort((a, b) =>
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    ));
+
+    // Calculate stats
+    const members = TEAM_MEMBERS.filter(m => m.role !== 'manager');
+    const assessedMemberIds = new Set(allAssessments.map(a => a.memberId));
+
+    // Get latest assessment per member
+    const latestByMember = new Map<string, AssessmentRecord>();
+    allAssessments.forEach(a => {
+      const existing = latestByMember.get(a.memberId);
+      if (!existing || new Date(a.date) > new Date(existing.date)) {
+        latestByMember.set(a.memberId, a);
+      }
+    });
+
+    const readyCount = Array.from(latestByMember.values()).filter(a => a.readinessScore >= 80).length;
+    const needsCoachingCount = Array.from(latestByMember.values()).filter(a => a.readinessScore < 50).length;
+
+    setTeamStats({
+      leads: TEAM_MEMBERS.filter(m => m.role === 'lead').length,
+      mid: TEAM_MEMBERS.filter(m => m.role === 'mid').length,
+      junior: TEAM_MEMBERS.filter(m => m.role === 'junior').length,
+      total: members.length,
+      assessed: assessedMemberIds.size,
+      readyForPromotion: readyCount,
+      needsCoaching: needsCoachingCount,
+    });
+  }, []);
+
+  // Get members needing assessment (never assessed or assessed > 30 days ago)
+  const membersNeedingAssessment = TEAM_MEMBERS.filter(m => {
+    if (m.role === 'manager') return false;
+    const memberAssessments = assessments.filter(a => a.memberId === m.id);
+    if (memberAssessments.length === 0) return true;
+    const latest = memberAssessments[0];
+    const daysSince = Math.floor((Date.now() - new Date(latest.date).getTime()) / (1000 * 60 * 60 * 24));
+    return daysSince > 30;
+  }).slice(0, 5);
+
+  const recentAssessments = assessments.slice(0, 5);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="animate-fade-in space-y-8">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold mb-2">Manager Dashboard</h1>
+        <p className="text-base-content/70">
+          Overview of your team&apos;s skill progression and coaching activities
+        </p>
+      </div>
+
+      {/* Main Stats */}
+      <div className="stats shadow w-full bg-base-200">
+        <div className="stat">
+          <div className="stat-figure text-primary">👥</div>
+          <div className="stat-title">Total Team</div>
+          <div className="stat-value text-primary">{teamStats.total}</div>
+          <div className="stat-desc">
+            {teamStats.leads} leads • {teamStats.mid} mid • {teamStats.junior} junior
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="stat">
+          <div className="stat-figure text-info">📋</div>
+          <div className="stat-title">Assessed</div>
+          <div className="stat-value text-info">{teamStats.assessed}</div>
+          <div className="stat-desc">{teamStats.total - teamStats.assessed} pending</div>
         </div>
-      </main>
+        <div className="stat">
+          <div className="stat-figure text-success">🚀</div>
+          <div className="stat-title">Ready for Promotion</div>
+          <div className="stat-value text-success">{teamStats.readyForPromotion}</div>
+          <div className="stat-desc">80%+ readiness</div>
+        </div>
+        <div className="stat">
+          <div className="stat-figure text-warning">💬</div>
+          <div className="stat-title">Needs Coaching</div>
+          <div className="stat-value text-warning">{teamStats.needsCoaching}</div>
+          <div className="stat-desc">&lt;50% readiness</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Needs Assessment */}
+        <section className="card bg-base-200 shadow-lg">
+          <div className="card-body">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="card-title">📝 Needs Assessment</h2>
+              <Link href="/team" className="btn btn-ghost btn-sm">View All</Link>
+            </div>
+
+            {membersNeedingAssessment.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-4xl mb-2">✅</div>
+                <p className="text-base-content/70">All team members assessed!</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {membersNeedingAssessment.map((member) => (
+                  <div key={member.id} className="flex items-center justify-between p-3 rounded-lg bg-base-300">
+                    <div className="flex items-center gap-3">
+                      <div className="avatar placeholder">
+                        <div className="bg-neutral text-neutral-content rounded-full w-10">
+                          <span>{member.avatarInitials}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="font-medium">{member.name}</p>
+                        <p className="text-xs text-base-content/60">{ROLE_LABELS[member.role]}</p>
+                      </div>
+                    </div>
+                    <Link href={`/team/${member.id}/assess`} className="btn btn-primary btn-sm">
+                      Assess
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Recent Assessments */}
+        <section className="card bg-base-200 shadow-lg">
+          <div className="card-body">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="card-title">📊 Recent Assessments</h2>
+            </div>
+
+            {recentAssessments.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-4xl mb-2">📋</div>
+                <p className="text-base-content/70 mb-4">No assessments yet</p>
+                <Link href="/team" className="btn btn-primary btn-sm">Start Assessing</Link>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recentAssessments.map((assessment) => {
+                  const member = TEAM_MEMBERS.find(m => m.id === assessment.memberId);
+                  return (
+                    <Link
+                      key={assessment.id}
+                      href={`/team/${assessment.memberId}`}
+                      className="flex items-center justify-between p-3 rounded-lg bg-base-300 hover:bg-base-300/70 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="avatar placeholder">
+                          <div className="bg-neutral text-neutral-content rounded-full w-10">
+                            <span>{member?.avatarInitials || '?'}</span>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="font-medium">{member?.name || 'Unknown'}</p>
+                          <p className="text-xs text-base-content/60">
+                            {new Date(assessment.date).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className={`radial-progress text-sm ${assessment.readinessScore >= 80 ? 'text-success' :
+                            assessment.readinessScore >= 50 ? 'text-info' : 'text-warning'
+                          }`} style={{ "--value": assessment.readinessScore, "--size": "2.5rem", "--thickness": "3px" } as React.CSSProperties}>
+                          {assessment.readinessScore}%
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* Quick Actions */}
+      <section className="card bg-base-200 shadow-lg">
+        <div className="card-body">
+          <h2 className="card-title mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Link href="/team" className="btn btn-outline btn-lg justify-start gap-3">
+              <span className="text-xl">👥</span>
+              <span>View All Team Members</span>
+            </Link>
+            <Link href="/calendar" className="btn btn-outline btn-lg justify-start gap-3">
+              <span className="text-xl">📅</span>
+              <span>Schedule 1-on-1</span>
+            </Link>
+            <Link href="/admin" className="btn btn-outline btn-lg justify-start gap-3">
+              <span className="text-xl">⚙️</span>
+              <span>Configure Skills</span>
+            </Link>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
