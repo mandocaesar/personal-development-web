@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useAuthFetch } from '@/lib/auth-helpers';
+import { GRADE_DISPLAY_TO_ENUM, GRADE_ENUM_TO_DISPLAY } from '@/lib/api-types';
 import {
     CAREER_GRADES,
     PROFICIENCY_LEVELS,
@@ -15,45 +17,68 @@ import {
 import { createEmptyAssessment } from '@/lib/grading';
 import { SOFT_SKILLS, HARD_SKILLS } from '@/lib/config/skill-requirements';
 
-const STORAGE_KEY = 'skill-tracker-assessment';
-
 export default function AssessmentPage() {
+    const { authFetch, status } = useAuthFetch();
     const [selectedGrade, setSelectedGrade] = useState<CareerGrade>('Senior Engineer');
     const [assessment, setAssessment] = useState<SkillAssessment>(createEmptyAssessment());
     const [isSaving, setIsSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState<Date | null>(null);
+    const [loaded, setLoaded] = useState(false);
 
-    // Load from localStorage on mount
+    // Load from API on mount
     useEffect(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
+        if (status !== 'authenticated') return;
+
+        async function loadSelfAssessment() {
             try {
-                const data = JSON.parse(saved);
-                if (data.grade) setSelectedGrade(data.grade);
-                if (data.assessment) setAssessment(data.assessment);
-                if (data.savedAt) setLastSaved(new Date(data.savedAt));
-            } catch (e) {
-                console.error('Failed to load saved assessment:', e);
+                const res = await authFetch('/api/self-assessments');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data) {
+                        const displayGrade = GRADE_ENUM_TO_DISPLAY[data.grade] || data.grade;
+                        if (displayGrade) setSelectedGrade(displayGrade as CareerGrade);
+                        if (data.skills) setAssessment(data.skills);
+                        if (data.updatedAt) setLastSaved(new Date(data.updatedAt));
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load self-assessment:', error);
+            } finally {
+                setLoaded(true);
             }
         }
-    }, []);
 
-    // Auto-save on changes
-    useEffect(() => {
-        const saveTimeout = setTimeout(() => {
-            setIsSaving(true);
-            const data = {
-                grade: selectedGrade,
-                assessment,
-                savedAt: new Date().toISOString(),
-            };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        loadSelfAssessment();
+    }, [status, authFetch]);
+
+    // Auto-save on changes (debounced)
+    const saveToAPI = useCallback(async (grade: CareerGrade, skills: SkillAssessment) => {
+        if (!loaded) return;
+        setIsSaving(true);
+        try {
+            const gradeEnum = GRADE_DISPLAY_TO_ENUM[grade] || 'SENIOR_ENGINEER';
+            await authFetch('/api/self-assessments', {
+                method: 'POST',
+                body: JSON.stringify({
+                    grade: gradeEnum,
+                    skills,
+                }),
+            });
             setLastSaved(new Date());
+        } catch (error) {
+            console.error('Failed to save self-assessment:', error);
+        } finally {
             setIsSaving(false);
-        }, 500);
+        }
+    }, [loaded, authFetch]);
 
+    useEffect(() => {
+        if (!loaded) return;
+        const saveTimeout = setTimeout(() => {
+            saveToAPI(selectedGrade, assessment);
+        }, 1000);
         return () => clearTimeout(saveTimeout);
-    }, [selectedGrade, assessment]);
+    }, [selectedGrade, assessment, loaded, saveToAPI]);
 
     const updateSoftSkill = (skill: SoftSkill, level: ProficiencyLevel) => {
         setAssessment((prev) => ({

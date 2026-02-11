@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useAuthFetch } from '@/lib/auth-helpers';
 import {
     SOFT_SKILL_LABELS,
     HARD_SKILL_LABELS,
@@ -10,6 +12,8 @@ import {
 import { SOFT_SKILLS, HARD_SKILLS } from '@/lib/config/skill-requirements';
 
 export default function NewProjectPage() {
+    const router = useRouter();
+    const { authFetch } = useAuthFetch();
     const [formData, setFormData] = useState({
         title: '',
         explanation: '',
@@ -25,14 +29,42 @@ export default function NewProjectPage() {
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
+    const [error, setError] = useState('');
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
-        setTimeout(() => {
+        setError('');
+
+        try {
+            const res = await authFetch('/api/projects', {
+                method: 'POST',
+                body: JSON.stringify({
+                    title: formData.title,
+                    explanation: formData.explanation,
+                    startDate: formData.startDate,
+                    endDate: formData.endDate || null,
+                    techStack: formData.techStack.split(',').map(s => s.trim()).filter(Boolean),
+                    teamSize: parseInt(formData.teamSize),
+                    role: formData.role,
+                    jiraLink: formData.jiraLink || null,
+                    confluenceLink: formData.confluenceLink || null,
+                    skillsClaimed: formData.skillsClaimed,
+                }),
+            });
+
+            if (res.ok) {
+                setSubmitted(true);
+            } else {
+                const data = await res.json();
+                setError(data.error || 'Failed to save project');
+            }
+        } catch (err) {
+            console.error('Error saving project:', err);
+            setError('Failed to save project');
+        } finally {
             setIsSubmitting(false);
-            setSubmitted(true);
-        }, 1000);
+        }
     };
 
     const toggleSkill = (skill: SkillType) => {

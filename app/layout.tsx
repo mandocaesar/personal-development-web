@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Navigation from "@/components/Navigation";
+import AuthProvider from "@/components/AuthProvider";
+import AppShell from "@/components/AppShell";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -21,14 +22,11 @@ export default function RootLayout({
   return (
     <html lang="en" data-theme="dark" className={inter.variable}>
       <body className="min-h-screen bg-base-100">
-        <div className="flex">
-          <Navigation />
-          <main className="flex-1 ml-64 min-h-screen">
-            <div className="container-app py-8">
-              {children}
-            </div>
-          </main>
-        </div>
+        <AuthProvider>
+          <AppShell>
+            {children}
+          </AppShell>
+        </AuthProvider>
       </body>
     </html>
   );

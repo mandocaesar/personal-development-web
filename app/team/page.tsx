@@ -1,21 +1,62 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { TEAM_MEMBERS, ROLE_LABELS, ROLE_COLORS, UserRole } from '@/lib/team-data';
+import { useAuthFetch } from '@/lib/auth-helpers';
+import type { TeamMemberAPI } from '@/lib/api-types';
+
+type RoleFilter = 'all' | 'lead' | 'mid' | 'junior';
+
+const ROLE_LABELS: Record<string, string> = {
+    manager: 'Manager',
+    lead: 'Team Lead',
+    mid: 'Mid Engineer',
+    junior: 'Junior',
+};
+
+const ROLE_COLORS: Record<string, string> = {
+    manager: 'badge-primary',
+    lead: 'badge-secondary',
+    mid: 'badge-info',
+    junior: 'badge-warning',
+};
 
 export default function TeamPage() {
-    const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
+    const { authFetch, status } = useAuthFetch();
+    const [members, setMembers] = useState<TeamMemberAPI[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
     const [searchQuery, setSearchQuery] = useState('');
 
-    const filteredMembers = TEAM_MEMBERS.filter(member => {
-        // Exclude manager from the list (that's you!)
+    useEffect(() => {
+        if (status !== 'authenticated') return;
+
+        async function loadMembers() {
+            try {
+                const res = await authFetch('/api/team-members');
+                const data: TeamMemberAPI[] = await res.json();
+                setMembers(data);
+            } catch (error) {
+                console.error('Error loading team members:', error);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        loadMembers();
+    }, [status, authFetch]);
+
+    if (loading || status === 'loading') {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <span className="loading loading-spinner loading-lg text-primary"></span>
+            </div>
+        );
+    }
+
+    const filteredMembers = members.filter(member => {
         if (member.role === 'manager') return false;
-
-        // Apply role filter
         if (roleFilter !== 'all' && member.role !== roleFilter) return false;
-
-        // Apply search filter
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             return member.name.toLowerCase().includes(query) ||
@@ -25,9 +66,9 @@ export default function TeamPage() {
     });
 
     const teamStats = {
-        leads: TEAM_MEMBERS.filter(m => m.role === 'lead').length,
-        mid: TEAM_MEMBERS.filter(m => m.role === 'mid').length,
-        junior: TEAM_MEMBERS.filter(m => m.role === 'junior').length,
+        leads: members.filter(m => m.role === 'lead').length,
+        mid: members.filter(m => m.role === 'mid').length,
+        junior: members.filter(m => m.role === 'junior').length,
     };
 
     return (
@@ -122,8 +163,8 @@ export default function TeamPage() {
                                     <h3 className="font-bold truncate">{member.name}</h3>
                                     <p className="text-sm text-base-content/60 truncate">{member.email}</p>
                                     <div className="flex items-center gap-2 mt-2">
-                                        <span className={`badge badge-sm ${ROLE_COLORS[member.role]}`}>
-                                            {ROLE_LABELS[member.role]}
+                                        <span className={`badge badge-sm ${ROLE_COLORS[member.role] || 'badge-ghost'}`}>
+                                            {ROLE_LABELS[member.role] || member.role}
                                         </span>
                                         <span className="badge badge-sm badge-outline">{member.currentGrade}</span>
                                     </div>

@@ -2,24 +2,67 @@
 
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
-import { TEAM_MEMBERS, AssessmentRecord, ROLE_LABELS, ROLE_COLORS, STORAGE_KEYS } from '@/lib/team-data';
+import { useAuthFetch } from '@/lib/auth-helpers';
+import type { TeamMemberAPI, AssessmentAPI } from '@/lib/api-types';
 import { SOFT_SKILL_LABELS, HARD_SKILL_LABELS } from '@/lib/types';
+
+const ROLE_LABELS: Record<string, string> = {
+    manager: 'Manager',
+    lead: 'Team Lead',
+    mid: 'Mid Engineer',
+    junior: 'Junior',
+};
+
+const ROLE_COLORS: Record<string, string> = {
+    manager: 'badge-primary',
+    lead: 'badge-secondary',
+    mid: 'badge-info',
+    junior: 'badge-warning',
+};
 
 export default function MemberProfilePage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
-    const member = TEAM_MEMBERS.find(m => m.id === id);
-    const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
+    const { authFetch, status } = useAuthFetch();
+    const [member, setMember] = useState<TeamMemberAPI | null>(null);
+    const [assessments, setAssessments] = useState<AssessmentAPI[]>([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Load assessments from localStorage
-        const saved = localStorage.getItem(STORAGE_KEYS.assessments);
-        if (saved) {
-            const all: AssessmentRecord[] = JSON.parse(saved);
-            setAssessments(all.filter(a => a.memberId === id).sort((a, b) =>
-                new Date(b.date).getTime() - new Date(a.date).getTime()
-            ));
+        if (status !== 'authenticated') return;
+
+        async function loadData() {
+            try {
+                const [memberRes, assessmentsRes] = await Promise.all([
+                    authFetch(`/api/team-members/${id}`),
+                    authFetch(`/api/assessments?assesseeId=${id}`),
+                ]);
+
+                if (memberRes.ok) {
+                    setMember(await memberRes.json());
+                }
+                if (assessmentsRes.ok) {
+                    const data: AssessmentAPI[] = await assessmentsRes.json();
+                    setAssessments(data.sort((a, b) =>
+                        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                    ));
+                }
+            } catch (error) {
+                console.error('Error loading member data:', error);
+            } finally {
+                setLoading(false);
+            }
         }
-    }, [id]);
+
+        loadData();
+    }, [id, status, authFetch]);
+
+    if (loading || status === 'loading') {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <span className="loading loading-spinner loading-lg text-primary"></span>
+            </div>
+        );
+    }
 
     if (!member) {
         return (
@@ -36,6 +79,7 @@ export default function MemberProfilePage({ params }: { params: Promise<{ id: st
     }
 
     const latestAssessment = assessments[0];
+    const latestSkills = latestAssessment ? JSON.parse(latestAssessment.skillsJson) : null;
 
     return (
         <div className="animate-fade-in space-y-8">
@@ -53,7 +97,7 @@ export default function MemberProfilePage({ params }: { params: Promise<{ id: st
                             <h1 className="text-3xl font-bold">{member.name}</h1>
                             <p className="text-base-content/70">{member.email}</p>
                             <div className="flex gap-2 mt-2">
-                                <span className={`badge ${ROLE_COLORS[member.role]}`}>{ROLE_LABELS[member.role]}</span>
+                                <span className={`badge ${ROLE_COLORS[member.role] || 'badge-ghost'}`}>{ROLE_LABELS[member.role] || member.role}</span>
                                 <span className="badge badge-outline">{member.currentGrade}</span>
                             </div>
                         </div>
@@ -87,13 +131,13 @@ export default function MemberProfilePage({ params }: { params: Promise<{ id: st
             </div>
 
             {/* Latest Assessment */}
-            {latestAssessment && (
+            {latestAssessment && latestSkills && (
                 <section className="card bg-base-200 shadow-lg">
                     <div className="card-body">
                         <div className="flex items-center justify-between mb-4">
                             <h2 className="card-title">Latest Assessment</h2>
                             <span className="text-sm text-base-content/60">
-                                {new Date(latestAssessment.date).toLocaleDateString()}
+                                {new Date(latestAssessment.createdAt).toLocaleDateString()}
                             </span>
                         </div>
 
@@ -104,13 +148,13 @@ export default function MemberProfilePage({ params }: { params: Promise<{ id: st
                                     <span>💭</span> Soft Skills
                                 </h3>
                                 <div className="space-y-2">
-                                    {Object.entries(latestAssessment.skills.softSkills).map(([skill, level]) => (
+                                    {Object.entries(latestSkills.softSkills).map(([skill, level]) => (
                                         <div key={skill} className="flex items-center justify-between p-2 rounded bg-base-300">
                                             <span className="text-sm">{SOFT_SKILL_LABELS[skill as keyof typeof SOFT_SKILL_LABELS]}</span>
                                             <span className={`badge badge-sm ${level === 'Expert' ? 'badge-success' :
                                                     level === 'Proficient' ? 'badge-info' :
                                                         level === 'Developing' ? 'badge-warning' : 'badge-ghost'
-                                                }`}>{level}</span>
+                                                }`}>{level as string}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -122,13 +166,13 @@ export default function MemberProfilePage({ params }: { params: Promise<{ id: st
                                     <span>🔧</span> Hard Skills
                                 </h3>
                                 <div className="space-y-2">
-                                    {Object.entries(latestAssessment.skills.hardSkills).map(([skill, level]) => (
+                                    {Object.entries(latestSkills.hardSkills).map(([skill, level]) => (
                                         <div key={skill} className="flex items-center justify-between p-2 rounded bg-base-300">
                                             <span className="text-sm">{HARD_SKILL_LABELS[skill as keyof typeof HARD_SKILL_LABELS]}</span>
                                             <span className={`badge badge-sm ${level === 'Expert' ? 'badge-success' :
                                                     level === 'Proficient' ? 'badge-info' :
                                                         level === 'Developing' ? 'badge-warning' : 'badge-ghost'
-                                                }`}>{level}</span>
+                                                }`}>{level as string}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -172,8 +216,8 @@ export default function MemberProfilePage({ params }: { params: Promise<{ id: st
                                 <tbody>
                                     {assessments.map((assessment) => (
                                         <tr key={assessment.id} className="hover">
-                                            <td>{new Date(assessment.date).toLocaleDateString()}</td>
-                                            <td>{assessment.assessorName}</td>
+                                            <td>{new Date(assessment.createdAt).toLocaleDateString()}</td>
+                                            <td>{assessment.assessor?.name || 'Unknown'}</td>
                                             <td>
                                                 <div className="flex items-center gap-2">
                                                     <progress

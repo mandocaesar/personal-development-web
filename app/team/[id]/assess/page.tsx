@@ -3,7 +3,9 @@
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { TEAM_MEMBERS, AssessmentRecord, ROLE_LABELS, STORAGE_KEYS } from '@/lib/team-data';
+import { useAuthFetch } from '@/lib/auth-helpers';
+import type { TeamMemberAPI } from '@/lib/api-types';
+import { GRADE_DISPLAY_TO_ENUM } from '@/lib/api-types';
 import {
     PROFICIENCY_LEVELS,
     SOFT_SKILL_LABELS,
@@ -33,7 +35,9 @@ interface TopicAnswer {
 export default function AssessMemberPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
     const router = useRouter();
-    const member = TEAM_MEMBERS.find(m => m.id === id);
+    const { authFetch, status } = useAuthFetch();
+    const [member, setMember] = useState<TeamMemberAPI | null>(null);
+    const [memberLoading, setMemberLoading] = useState(true);
 
     const [step, setStep] = useState<'topics' | 'interview' | 'summary'>('topics');
     const [selectedTopics, setSelectedTopics] = useState<Set<SkillType>>(new Set());
@@ -47,7 +51,29 @@ export default function AssessMemberPage({ params }: { params: Promise<{ id: str
     const [activeTab, setActiveTab] = useState<'question' | 'whiteboard'>('question');
     const [finalNotes, setFinalNotes] = useState('');
     const [overallRating, setOverallRating] = useState<'strong_no' | 'no' | 'maybe' | 'yes' | 'strong_yes'>('maybe');
-    const [savedAssessment, setSavedAssessment] = useState<AssessmentRecord | null>(null);
+    const [savedAssessmentData, setSavedAssessmentData] = useState<{
+        skills: SkillAssessment;
+        readinessScore: number;
+        notes: string;
+    } | null>(null);
+
+    // Load member from API
+    useEffect(() => {
+        if (status !== 'authenticated') return;
+        async function loadMember() {
+            try {
+                const res = await authFetch(`/api/team-members/${id}`);
+                if (res.ok) {
+                    setMember(await res.json());
+                }
+            } catch (error) {
+                console.error('Error loading member:', error);
+            } finally {
+                setMemberLoading(false);
+            }
+        }
+        loadMember();
+    }, [id, status, authFetch]);
 
     // Timer
     useEffect(() => {
@@ -56,6 +82,14 @@ export default function AssessMemberPage({ params }: { params: Promise<{ id: str
             return () => clearInterval(interval);
         }
     }, [step]);
+
+    if (memberLoading || status === 'loading') {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <span className="loading loading-spinner loading-lg text-primary"></span>
+            </div>
+        );
+    }
 
     if (!member) {
         return (
@@ -193,7 +227,7 @@ export default function AssessMemberPage({ params }: { params: Promise<{ id: str
     const handleSubmit = () => {
         setIsSubmitting(true);
 
-        const result = analyzeProgression(member.currentGrade, assessment);
+        const result = analyzeProgression(member.currentGrade as import('@/lib/types').CareerGrade, assessment);
         const readinessScore = result?.readinessPercentage || 0;
 
         // Compile notes with questions and answers
@@ -207,38 +241,37 @@ export default function AssessMemberPage({ params }: { params: Promise<{ id: str
             })
             .join('\n\n---\n\n');
 
-        const newAssessment: AssessmentRecord = {
-            id: `assessment-${Date.now()}`,
-            memberId: member.id,
-            assessorId: 'mgr-1',
-            assessorName: 'You (Manager)',
-            date: new Date().toISOString(),
-            grade: member.currentGrade,
+        setSavedAssessmentData({
             skills: assessment,
+            readinessScore,
             notes: allNotes,
-            readinessScore: readinessScore,
-        };
-
-        setSavedAssessment(newAssessment);
+        });
         setIsSubmitting(false);
         setStep('summary');
     };
 
-    const handleFinalSubmit = () => {
-        if (!savedAssessment) return;
+    const handleFinalSubmit = async () => {
+        if (!savedAssessmentData) return;
 
-        // Add final notes and overall rating to assessment
-        const finalAssessment: AssessmentRecord = {
-            ...savedAssessment,
-            notes: savedAssessment.notes + `\n\n=== FINAL EVALUATION ===\nOverall: ${overallRating.toUpperCase()}\n${finalNotes}`,
-        };
+        try {
+            const gradeEnum = GRADE_DISPLAY_TO_ENUM[member.currentGrade] || 'SENIOR_ENGINEER';
+            const finalNotesFull = savedAssessmentData.notes + `\n\n=== FINAL EVALUATION ===\nOverall: ${overallRating.toUpperCase()}\n${finalNotes}`;
 
-        const saved = localStorage.getItem(STORAGE_KEYS.assessments);
-        const all: AssessmentRecord[] = saved ? JSON.parse(saved) : [];
-        all.push(finalAssessment);
-        localStorage.setItem(STORAGE_KEYS.assessments, JSON.stringify(all));
+            await authFetch('/api/assessments', {
+                method: 'POST',
+                body: JSON.stringify({
+                    assesseeId: member.id,
+                    grade: gradeEnum,
+                    skillsJson: JSON.stringify(savedAssessmentData.skills),
+                    notes: finalNotesFull,
+                    readinessScore: savedAssessmentData.readinessScore,
+                }),
+            });
 
-        router.push(`/team/${id}`);
+            router.push(`/team/${id}`);
+        } catch (error) {
+            console.error('Error saving assessment:', error);
+        }
     };
 
     const ratingOptions = [

@@ -1,10 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { TEAM_MEMBERS, CoachingSession, STORAGE_KEYS } from '@/lib/team-data';
+import { useAuthFetch } from '@/lib/auth-helpers';
+import type { TeamMemberAPI, CoachingSessionAPI } from '@/lib/api-types';
 
 export default function CalendarPage() {
-    const [sessions, setSessions] = useState<CoachingSession[]>([]);
+    const { authFetch, status } = useAuthFetch();
+    const [sessions, setSessions] = useState<CoachingSessionAPI[]>([]);
+    const [teamMembers, setTeamMembers] = useState<TeamMemberAPI[]>([]);
+    const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [newSession, setNewSession] = useState({
         memberId: '',
@@ -15,50 +19,88 @@ export default function CalendarPage() {
     });
 
     useEffect(() => {
-        const saved = localStorage.getItem(STORAGE_KEYS.coaching);
-        if (saved) {
-            setSessions(JSON.parse(saved));
+        if (status !== 'authenticated') return;
+
+        async function loadData() {
+            try {
+                const [sessionsRes, membersRes] = await Promise.all([
+                    authFetch('/api/coaching-sessions'),
+                    authFetch('/api/team-members'),
+                ]);
+
+                if (sessionsRes.ok) {
+                    setSessions(await sessionsRes.json());
+                }
+                if (membersRes.ok) {
+                    const members: TeamMemberAPI[] = await membersRes.json();
+                    setTeamMembers(members.filter(m => m.role !== 'manager'));
+                }
+            } catch (error) {
+                console.error('Error loading calendar data:', error);
+            } finally {
+                setLoading(false);
+            }
         }
-    }, []);
 
-    const teamMembers = TEAM_MEMBERS.filter(m => m.role !== 'manager');
+        loadData();
+    }, [status, authFetch]);
 
-    const handleSaveSession = () => {
+    const handleSaveSession = async () => {
         if (!newSession.memberId || !newSession.date || !newSession.topic) return;
 
-        const member = TEAM_MEMBERS.find(m => m.id === newSession.memberId);
-        const session: CoachingSession = {
-            id: `session-${Date.now()}`,
-            memberId: newSession.memberId,
-            memberName: member?.name || 'Unknown',
-            scheduledAt: `${newSession.date}T${newSession.time}:00`,
-            duration: newSession.duration,
-            topic: newSession.topic,
-            notes: '',
-            status: 'scheduled',
-        };
+        try {
+            const res = await authFetch('/api/coaching-sessions', {
+                method: 'POST',
+                body: JSON.stringify({
+                    memberId: newSession.memberId,
+                    scheduledAt: `${newSession.date}T${newSession.time}:00`,
+                    duration: newSession.duration,
+                    topic: newSession.topic,
+                }),
+            });
 
-        const updated = [...sessions, session];
-        setSessions(updated);
-        localStorage.setItem(STORAGE_KEYS.coaching, JSON.stringify(updated));
-        setShowModal(false);
-        setNewSession({ memberId: '', date: '', time: '10:00', duration: 30, topic: '' });
+            if (res.ok) {
+                const created: CoachingSessionAPI = await res.json();
+                setSessions(prev => [...prev, created]);
+                setShowModal(false);
+                setNewSession({ memberId: '', date: '', time: '10:00', duration: 30, topic: '' });
+            }
+        } catch (error) {
+            console.error('Error saving session:', error);
+        }
     };
 
-    const updateSessionStatus = (sessionId: string, status: 'completed' | 'cancelled') => {
-        const updated = sessions.map(s =>
-            s.id === sessionId ? { ...s, status } : s
+    const updateSessionStatus = async (sessionId: string, newStatus: 'COMPLETED' | 'CANCELLED') => {
+        try {
+            const res = await authFetch(`/api/coaching-sessions/${sessionId}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ status: newStatus }),
+            });
+
+            if (res.ok) {
+                setSessions(prev => prev.map(s =>
+                    s.id === sessionId ? { ...s, status: newStatus } : s
+                ));
+            }
+        } catch (error) {
+            console.error('Error updating session:', error);
+        }
+    };
+
+    if (loading || status === 'loading') {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <span className="loading loading-spinner loading-lg text-primary"></span>
+            </div>
         );
-        setSessions(updated);
-        localStorage.setItem(STORAGE_KEYS.coaching, JSON.stringify(updated));
-    };
+    }
 
     const upcomingSessions = sessions
-        .filter(s => s.status === 'scheduled' && new Date(s.scheduledAt) >= new Date())
+        .filter(s => s.status === 'SCHEDULED' && new Date(s.scheduledAt) >= new Date())
         .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
 
     const pastSessions = sessions
-        .filter(s => s.status !== 'scheduled' || new Date(s.scheduledAt) < new Date())
+        .filter(s => s.status !== 'SCHEDULED' || new Date(s.scheduledAt) < new Date())
         .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
 
     return (
@@ -84,12 +126,12 @@ export default function CalendarPage() {
                 <div className="stat">
                     <div className="stat-figure text-success">✅</div>
                     <div className="stat-title">Completed</div>
-                    <div className="stat-value text-success">{sessions.filter(s => s.status === 'completed').length}</div>
+                    <div className="stat-value text-success">{sessions.filter(s => s.status === 'COMPLETED').length}</div>
                 </div>
                 <div className="stat">
                     <div className="stat-figure text-base-content/50">❌</div>
                     <div className="stat-title">Cancelled</div>
-                    <div className="stat-value">{sessions.filter(s => s.status === 'cancelled').length}</div>
+                    <div className="stat-value">{sessions.filter(s => s.status === 'CANCELLED').length}</div>
                 </div>
             </div>
 
@@ -109,7 +151,7 @@ export default function CalendarPage() {
                     ) : (
                         <div className="space-y-3">
                             {upcomingSessions.map((session) => {
-                                const member = TEAM_MEMBERS.find(m => m.id === session.memberId);
+                                const member = teamMembers.find(m => m.id === session.memberId) || session.member;
                                 const date = new Date(session.scheduledAt);
                                 return (
                                     <div key={session.id} className="flex items-center justify-between p-4 rounded-lg bg-base-300">
@@ -126,7 +168,7 @@ export default function CalendarPage() {
                                                 </div>
                                             </div>
                                             <div>
-                                                <p className="font-medium">{session.memberName}</p>
+                                                <p className="font-medium">{member?.name || 'Unknown'}</p>
                                                 <p className="text-sm text-base-content/60">
                                                     {date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} • {session.duration} min
                                                 </p>
@@ -135,13 +177,13 @@ export default function CalendarPage() {
                                         </div>
                                         <div className="flex gap-2">
                                             <button
-                                                onClick={() => updateSessionStatus(session.id, 'completed')}
+                                                onClick={() => updateSessionStatus(session.id, 'COMPLETED')}
                                                 className="btn btn-success btn-sm"
                                             >
                                                 Complete
                                             </button>
                                             <button
-                                                onClick={() => updateSessionStatus(session.id, 'cancelled')}
+                                                onClick={() => updateSessionStatus(session.id, 'CANCELLED')}
                                                 className="btn btn-ghost btn-sm"
                                             >
                                                 Cancel
@@ -175,14 +217,14 @@ export default function CalendarPage() {
                                     {pastSessions.slice(0, 10).map((session) => (
                                         <tr key={session.id} className="hover">
                                             <td>{new Date(session.scheduledAt).toLocaleDateString()}</td>
-                                            <td>{session.memberName}</td>
+                                            <td>{session.member?.name || teamMembers.find(m => m.id === session.memberId)?.name || 'Unknown'}</td>
                                             <td>{session.topic}</td>
                                             <td>{session.duration} min</td>
                                             <td>
-                                                <span className={`badge ${session.status === 'completed' ? 'badge-success' :
-                                                        session.status === 'cancelled' ? 'badge-error' : 'badge-warning'
+                                                <span className={`badge ${session.status === 'COMPLETED' ? 'badge-success' :
+                                                        session.status === 'CANCELLED' ? 'badge-error' : 'badge-warning'
                                                     }`}>
-                                                    {session.status}
+                                                    {session.status.toLowerCase()}
                                                 </span>
                                             </td>
                                         </tr>

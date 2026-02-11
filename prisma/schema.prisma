@@ -1,0 +1,202 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  LEAD
+  MID
+  JUNIOR
+  VIEWER
+}
+
+enum CareerGrade {
+  ASSOCIATE_ENGINEER
+  ENGINEER
+  SENIOR_ENGINEER
+  LEAD_ENGINEER
+  ASSOCIATE_PRINCIPAL_ENGINEER
+  PRINCIPAL_ENGINEER
+  DISTINGUISHED_ENGINEER
+  ENGINEERING_MANAGER
+  ENGINEERING_DIVISION_HEAD
+}
+
+enum SessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  password      String
+  role          Role      @default(VIEWER)
+  currentGrade  CareerGrade?
+  targetGrade   CareerGrade?
+  avatarInitials String?
+  joinedAt      DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  managedTeams  TeamMember[] @relation("ManagerRelation")
+  teamMemberships TeamMember[] @relation("MemberRelation")
+  assessments   Assessment[] @relation("AssesseeRelation")
+  givenAssessments Assessment[] @relation("AssessorRelation")
+  coachingSessions CoachingSession[]
+  selfAssessments SelfAssessment[]
+  projects      Project[]
+  accounts      Account[]
+  sessions      Session[]
+  
+  @@index([email])
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  members     TeamMember[]
+  
+  @@index([name])
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String
+  managerId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  user      User     @relation("MemberRelation", fields: [userId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  manager   User?    @relation("ManagerRelation", fields: [managerId], references: [id])
+  
+  @@unique([userId, teamId])
+  @@index([userId])
+  @@index([teamId])
+  @@index([managerId])
+}
+
+model Assessment {
+  id            String   @id @default(cuid())
+  assesseeId    String
+  assessorId    String
+  grade         CareerGrade
+  skillsJson    String   @db.Text // JSON string of skills assessment
+  notes         String   @db.Text
+  readinessScore Float
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  assessee      User     @relation("AssesseeRelation", fields: [assesseeId], references: [id], onDelete: Cascade)
+  assessor      User     @relation("AssessorRelation", fields: [assessorId], references: [id], onDelete: Cascade)
+  
+  @@index([assesseeId])
+  @@index([assessorId])
+  @@index([createdAt])
+}
+
+model CoachingSession {
+  id          String        @id @default(cuid())
+  memberId    String
+  scheduledAt DateTime
+  duration    Int           // minutes
+  topic       String
+  notes       String        @db.Text
+  status      SessionStatus @default(SCHEDULED)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  member      User          @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  
+  @@index([memberId])
+  @@index([scheduledAt])
+}
+
+model SelfAssessment {
+  id            String      @id @default(cuid())
+  userId        String
+  grade         CareerGrade
+  skillsJson    String      @db.Text // JSON string of SkillAssessment
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([updatedAt])
+}
+
+model Project {
+  id            String   @id @default(cuid())
+  userId        String
+  title         String
+  explanation   String   @db.Text
+  startDate     DateTime
+  endDate       DateTime?
+  techStack     String[] // PostgreSQL array
+  teamSize      Int
+  role          String
+  jiraLink      String?
+  confluenceLink String?
+  skillsClaimed String[] // PostgreSQL array of skill keys
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// NextAuth models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}

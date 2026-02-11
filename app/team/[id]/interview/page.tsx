@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, use } from 'react';
-import { TEAM_MEMBERS } from '@/lib/team-data';
+import { useAuthFetch } from '@/lib/auth-helpers';
+import type { TeamMemberAPI } from '@/lib/api-types';
 import { SOFT_SKILL_LABELS, HARD_SKILL_LABELS, SoftSkill, HardSkill } from '@/lib/types';
 import { SOFT_SKILLS } from '@/lib/config/skill-requirements';
 import { Question, getQuestionsBySkill } from '@/lib/question-bank';
@@ -12,12 +13,32 @@ type SkillType = SoftSkill | HardSkill;
 
 export default function IntervieweePage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
-    const member = TEAM_MEMBERS.find(m => m.id === id);
+    const { authFetch, status } = useAuthFetch();
+    const [member, setMember] = useState<TeamMemberAPI | null>(null);
+    const [memberLoading, setMemberLoading] = useState(true);
 
     const [selectedSkill, setSelectedSkill] = useState<SkillType | null>(null);
     const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
     const [timer, setTimer] = useState(0);
     const [isStarted, setIsStarted] = useState(false);
+
+    // Load member from API
+    useEffect(() => {
+        if (status !== 'authenticated') return;
+        async function loadMember() {
+            try {
+                const res = await authFetch(`/api/team-members/${id}`);
+                if (res.ok) {
+                    setMember(await res.json());
+                }
+            } catch (error) {
+                console.error('Error loading member:', error);
+            } finally {
+                setMemberLoading(false);
+            }
+        }
+        loadMember();
+    }, [id, status, authFetch]);
 
     // Timer
     useEffect(() => {
@@ -42,6 +63,14 @@ export default function IntervieweePage({ params }: { params: Promise<{ id: stri
             setIsStarted(true);
         }
     };
+
+    if (memberLoading || status === 'loading') {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <span className="loading loading-spinner loading-lg text-primary"></span>
+            </div>
+        );
+    }
 
     if (!member) {
         return (

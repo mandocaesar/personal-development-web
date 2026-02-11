@@ -2,10 +2,21 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { TEAM_MEMBERS, AssessmentRecord, ROLE_LABELS, STORAGE_KEYS } from '@/lib/team-data';
+import { useAuthFetch } from '@/lib/auth-helpers';
+import type { TeamMemberAPI, AssessmentAPI } from '@/lib/api-types';
+
+const ROLE_LABELS: Record<string, string> = {
+  manager: 'Manager',
+  lead: 'Team Lead',
+  mid: 'Mid Engineer',
+  junior: 'Junior',
+};
 
 export default function ManagerDashboard() {
-  const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
+  const { authFetch, status } = useAuthFetch();
+  const [members, setMembers] = useState<TeamMemberAPI[]>([]);
+  const [assessments, setAssessments] = useState<AssessmentAPI[]>([]);
+  const [loading, setLoading] = useState(true);
   const [teamStats, setTeamStats] = useState({
     leads: 0,
     mid: 0,
@@ -17,47 +28,72 @@ export default function ManagerDashboard() {
   });
 
   useEffect(() => {
-    // Load assessments
-    const saved = localStorage.getItem(STORAGE_KEYS.assessments);
-    const allAssessments: AssessmentRecord[] = saved ? JSON.parse(saved) : [];
-    setAssessments(allAssessments.sort((a, b) =>
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    ));
+    if (status !== 'authenticated') return;
 
-    // Calculate stats
-    const members = TEAM_MEMBERS.filter(m => m.role !== 'manager');
-    const assessedMemberIds = new Set(allAssessments.map(a => a.memberId));
+    async function loadData() {
+      try {
+        const [membersRes, assessmentsRes] = await Promise.all([
+          authFetch('/api/team-members'),
+          authFetch('/api/assessments'),
+        ]);
 
-    // Get latest assessment per member
-    const latestByMember = new Map<string, AssessmentRecord>();
-    allAssessments.forEach(a => {
-      const existing = latestByMember.get(a.memberId);
-      if (!existing || new Date(a.date) > new Date(existing.date)) {
-        latestByMember.set(a.memberId, a);
+        const membersData: TeamMemberAPI[] = await membersRes.json();
+        const assessmentsData: AssessmentAPI[] = await assessmentsRes.json();
+
+        setMembers(membersData);
+        setAssessments(assessmentsData.sort((a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        ));
+
+        // Calculate stats
+        const nonManagers = membersData.filter(m => m.role !== 'manager');
+        const assessedMemberIds = new Set(assessmentsData.map(a => a.assesseeId));
+
+        const latestByMember = new Map<string, AssessmentAPI>();
+        assessmentsData.forEach(a => {
+          const existing = latestByMember.get(a.assesseeId);
+          if (!existing || new Date(a.createdAt) > new Date(existing.createdAt)) {
+            latestByMember.set(a.assesseeId, a);
+          }
+        });
+
+        const readyCount = Array.from(latestByMember.values()).filter(a => a.readinessScore >= 80).length;
+        const needsCoachingCount = Array.from(latestByMember.values()).filter(a => a.readinessScore < 50).length;
+
+        setTeamStats({
+          leads: membersData.filter(m => m.role === 'lead').length,
+          mid: membersData.filter(m => m.role === 'mid').length,
+          junior: membersData.filter(m => m.role === 'junior').length,
+          total: nonManagers.length,
+          assessed: assessedMemberIds.size,
+          readyForPromotion: readyCount,
+          needsCoaching: needsCoachingCount,
+        });
+      } catch (error) {
+        console.error('Error loading dashboard data:', error);
+      } finally {
+        setLoading(false);
       }
-    });
+    }
 
-    const readyCount = Array.from(latestByMember.values()).filter(a => a.readinessScore >= 80).length;
-    const needsCoachingCount = Array.from(latestByMember.values()).filter(a => a.readinessScore < 50).length;
+    loadData();
+  }, [status, authFetch]);
 
-    setTeamStats({
-      leads: TEAM_MEMBERS.filter(m => m.role === 'lead').length,
-      mid: TEAM_MEMBERS.filter(m => m.role === 'mid').length,
-      junior: TEAM_MEMBERS.filter(m => m.role === 'junior').length,
-      total: members.length,
-      assessed: assessedMemberIds.size,
-      readyForPromotion: readyCount,
-      needsCoaching: needsCoachingCount,
-    });
-  }, []);
+  if (loading || status === 'loading') {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <span className="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    );
+  }
 
   // Get members needing assessment (never assessed or assessed > 30 days ago)
-  const membersNeedingAssessment = TEAM_MEMBERS.filter(m => {
+  const membersNeedingAssessment = members.filter(m => {
     if (m.role === 'manager') return false;
-    const memberAssessments = assessments.filter(a => a.memberId === m.id);
+    const memberAssessments = assessments.filter(a => a.assesseeId === m.id);
     if (memberAssessments.length === 0) return true;
     const latest = memberAssessments[0];
-    const daysSince = Math.floor((Date.now() - new Date(latest.date).getTime()) / (1000 * 60 * 60 * 24));
+    const daysSince = Math.floor((Date.now() - new Date(latest.createdAt).getTime()) / (1000 * 60 * 60 * 24));
     return daysSince > 30;
   }).slice(0, 5);
 
@@ -129,7 +165,7 @@ export default function ManagerDashboard() {
                       </div>
                       <div>
                         <p className="font-medium">{member.name}</p>
-                        <p className="text-xs text-base-content/60">{ROLE_LABELS[member.role]}</p>
+                        <p className="text-xs text-base-content/60">{ROLE_LABELS[member.role] || member.role}</p>
                       </div>
                     </div>
                     <Link href={`/team/${member.id}/assess`} className="btn btn-primary btn-sm">
@@ -158,23 +194,23 @@ export default function ManagerDashboard() {
             ) : (
               <div className="space-y-3">
                 {recentAssessments.map((assessment) => {
-                  const member = TEAM_MEMBERS.find(m => m.id === assessment.memberId);
+                  const member = members.find(m => m.id === assessment.assesseeId);
                   return (
                     <Link
                       key={assessment.id}
-                      href={`/team/${assessment.memberId}`}
+                      href={`/team/${assessment.assesseeId}`}
                       className="flex items-center justify-between p-3 rounded-lg bg-base-300 hover:bg-base-300/70 transition-colors"
                     >
                       <div className="flex items-center gap-3">
                         <div className="avatar placeholder">
                           <div className="bg-neutral text-neutral-content rounded-full w-10">
-                            <span>{member?.avatarInitials || '?'}</span>
+                            <span>{member?.avatarInitials || assessment.assessee?.avatarInitials || '?'}</span>
                           </div>
                         </div>
                         <div>
-                          <p className="font-medium">{member?.name || 'Unknown'}</p>
+                          <p className="font-medium">{member?.name || assessment.assessee?.name || 'Unknown'}</p>
                           <p className="text-xs text-base-content/60">
-                            {new Date(assessment.date).toLocaleDateString()}
+                            {new Date(assessment.createdAt).toLocaleDateString()}
                           </p>
                         </div>
                       </div>

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useAuthFetch } from '@/lib/auth-helpers';
+import { GRADE_ENUM_TO_DISPLAY } from '@/lib/api-types';
 import {
     CareerGrade,
     SkillAssessment,
@@ -10,9 +12,8 @@ import {
 import { analyzeProgression, createEmptyAssessment } from '@/lib/grading';
 import { generateLearningPath } from '@/lib/learning';
 
-const STORAGE_KEY = 'skill-tracker-assessment';
-
 export default function LearningPage() {
+    const { authFetch, status } = useAuthFetch();
     const [currentGrade, setCurrentGrade] = useState<CareerGrade>('Senior Engineer');
     const [assessment, setAssessment] = useState<SkillAssessment>(createEmptyAssessment());
     const [recommendations, setRecommendations] = useState<LearningRecommendation[]>([]);
@@ -20,18 +21,28 @@ export default function LearningPage() {
     const [targetGrade, setTargetGrade] = useState<CareerGrade | null>(null);
 
     useEffect(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
+        if (status !== 'authenticated') return;
+
+        async function loadSelfAssessment() {
             try {
-                const data = JSON.parse(saved);
-                if (data.grade) setCurrentGrade(data.grade);
-                if (data.assessment) setAssessment(data.assessment);
-            } catch (e) {
-                console.error('Failed to load assessment:', e);
+                const res = await authFetch('/api/self-assessments');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data) {
+                        const displayGrade = GRADE_ENUM_TO_DISPLAY[data.grade] || data.grade;
+                        if (displayGrade) setCurrentGrade(displayGrade as CareerGrade);
+                        if (data.skills) setAssessment(data.skills);
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load assessment:', error);
+            } finally {
+                setLoaded(true);
             }
         }
-        setLoaded(true);
-    }, []);
+
+        loadSelfAssessment();
+    }, [status, authFetch]);
 
     useEffect(() => {
         if (loaded) {

@@ -1,44 +1,33 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Project } from '@/lib/types';
-
-const mockProjects: Project[] = [
-    {
-        id: '1',
-        userId: 'user-1',
-        title: 'E-commerce Platform Migration',
-        explanation: 'Led the migration of legacy e-commerce platform to microservices architecture. Designed and implemented service mesh, API gateway, and event-driven communication patterns.',
-        startDate: '2024-01-01',
-        endDate: '2024-06-30',
-        techStack: ['Node.js', 'TypeScript', 'Kubernetes', 'Redis', 'PostgreSQL'],
-        teamSize: 8,
-        role: 'Tech Lead',
-        jiraLink: 'https://jira.company.com/browse/ECOM-1234',
-        confluenceLink: 'https://confluence.company.com/display/TECH/Migration',
-        skillsClaimed: ['systemDesign', 'devops', 'leadership'],
-        createdAt: '2024-01-15T10:00:00Z',
-        updatedAt: '2024-06-30T15:00:00Z',
-    },
-    {
-        id: '2',
-        userId: 'user-1',
-        title: 'CI/CD Pipeline Overhaul',
-        explanation: 'Redesigned the entire CI/CD pipeline to reduce deployment time by 70%. Implemented automated testing, security scanning, and canary deployments.',
-        startDate: '2023-08-01',
-        endDate: '2023-12-31',
-        techStack: ['GitHub Actions', 'Docker', 'Terraform', 'ArgoCD'],
-        teamSize: 4,
-        role: 'Senior Engineer',
-        skillsClaimed: ['devops', 'testing', 'security'],
-        createdAt: '2023-08-01T10:00:00Z',
-        updatedAt: '2023-12-31T15:00:00Z',
-    },
-];
+import { useAuthFetch } from '@/lib/auth-helpers';
+import type { ProjectAPI } from '@/lib/api-types';
 
 export default function ProjectsPage() {
-    const [projects] = useState<Project[]>(mockProjects);
+    const { authFetch, status } = useAuthFetch();
+    const [projects, setProjects] = useState<ProjectAPI[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (status !== 'authenticated') return;
+
+        async function loadProjects() {
+            try {
+                const res = await authFetch('/api/projects');
+                if (res.ok) {
+                    setProjects(await res.json());
+                }
+            } catch (error) {
+                console.error('Error loading projects:', error);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        loadProjects();
+    }, [status, authFetch]);
 
     const formatDate = (dateStr: string) => {
         return new Date(dateStr).toLocaleDateString('en-US', {
@@ -46,6 +35,14 @@ export default function ProjectsPage() {
             year: 'numeric'
         });
     };
+
+    if (loading || status === 'loading') {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <span className="loading loading-spinner loading-lg text-primary"></span>
+            </div>
+        );
+    }
 
     return (
         <div className="animate-fade-in space-y-8">
